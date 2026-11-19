@@ -86,7 +86,17 @@ TYPE_TEXT = {
     "travel": "旅游聚会",
 }
 
-FONT_CANDIDATES = [
+# Bundled open-source CJK font (Noto Sans SC, SIL OFL 1.1 — see
+# fonts/OFL.txt). Shipped with the plugin so cards render identically on any
+# OS without relying on proprietary system fonts. FURCON_FONT lets a user
+# override it with an absolute path to any font file they prefer.
+BUNDLED_FONT = Path(__file__).resolve().parent / "fonts" / "NotoSansSC-Bold.ttf"
+_font_override = os.environ.get("FURCON_FONT", "").strip()
+FONT_CANDIDATES = [p.strip() for p in _font_override.split(os.pathsep) if p.strip()] if _font_override else []
+
+FONT_CANDIDATES += [
+    str(BUNDLED_FONT),
+    # Fallbacks for anyone who deleted the bundled file.
     # Windows
     r"C:\Windows\Fonts\msyhbd.ttc",
     r"C:\Windows\Fonts\msyh.ttc",
@@ -108,14 +118,11 @@ NAME_CALL = os.environ.get("FURCON_NAME_CALL", r"(阿灰|小灰|灰狼)")
 _admins_raw = os.environ.get("FURCON_ADMINS", "1154487120")
 ADMINS = {x.strip() for x in re.split(r"[,\s]+", _admins_raw) if x.strip()}
 
+# Commands with their own syntax are checked before the compositional event
+# matcher.  Keeping them separate stops e.g. "/关心 苏州小聚" (which contains
+# the kind word 聚) from being mistaken for an event query.
 COMMANDS: list[tuple[str, re.Pattern]] = [
     ("help", re.compile(r"^(兽聚help|兽聚指令|兽聚功能|兽聚用法)$", re.I)),
-    ("city_past", re.compile(r"((哪里|哪个城市|哪).{0,6}(上次|上一次|办过|过去).{0,4}(展|兽聚)|办过什么展|上次展|上一次展)")),
-    ("city_next", re.compile(r"((哪里|哪个城市|哪).{0,6}(下次|下回|接下来|将来).{0,4}(展|兽聚)|下次展在哪|城市下次展)")),
-    ("city_recent", re.compile(r"(近期展|近期兽聚|最近的展|最近有什么|最近有哪些)")),
-    ("recent", re.compile(r"(近期展|近期兽聚|最近有什么|最近有哪些|最近的展|前瞻|展会一览|最近兽聚|近期活动)")),
-    ("city_list", re.compile(r"(有什么展|有哪些展|有啥展|有什么兽聚|哪有展|有什么活动|哪里的展|本地展)")),
-    ("next", re.compile(r"(下次展|下一次展|下一场|下次兽聚|最近的兽聚|还有几天|倒计时|下一届|下场展)")),
     ("enable_on", re.compile(r"^(启用功能|开启功能|打开功能|启用)$")),
     ("enable_off", re.compile(r"^(关闭功能|停用功能|禁用功能|关闭)$")),
     ("watch_off", re.compile(r"(取消关心|不关心了|取消关注)")),
@@ -123,6 +130,26 @@ COMMANDS: list[tuple[str, re.Pattern]] = [
     ("fortune", re.compile(r"(运势|运气|抽个签|求签|吉凶|今日份|转运|人品|jrrp|jrys)")),
     ("stats", re.compile(r"(群统计|发言统计|谁最活跃|水群榜|活跃度|话最多|谁话多)")),
 ]
+
+# Event queries are matched compositionally instead of by enumerating every
+# permutation.  A query is read as: [时序] + [范围] + [地名] + [类型],
+# in any order, e.g. 下次展 / 下一次苏州兽聚 / 江苏近期聚 / 苏州上次展.
+# The first time word (by position) decides 过去/下次/近期; if there is no
+# time word but a kind word is present the query is a plain city listing.
+# Longer words must come first so "上一次" is not shadowed by "上次".
+EVENT_TIME_WORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("past", ("上一次", "上次", "上回", "上届", "办过", "过去")),
+    ("next", ("下一次", "下一场", "下一届", "下次", "下场", "下回",
+              "接下来", "将来", "还有几天", "倒计时")),
+    ("recent", ("近期", "最近", "前瞻", "展会一览")),
+]
+# 展 and 聚 (and their compounds) are treated as the same kind: the FEC feed
+# has no separate 展/聚 field, so "下次展" and "下次聚" must resolve alike.
+EVENT_KIND_WORDS = ("兽聚", "兽展", "展会", "漫展", "展", "聚")
+# Old standalone trigger phrases that contain neither 展 nor 聚; keep them so
+# "/还有几天", "/最近有什么", "/前瞻" etc. still work after the rewrite.
+EVENT_EXTRA_MARKERS = ("最近有什么", "最近有哪些", "近期活动", "有什么活动",
+                       "前瞻", "下一场", "下一届", "还有几天", "倒计时")
 
 PROVINCE_CITIES = {
     "江苏": ["南京", "苏州", "无锡", "常州", "扬州", "徐州", "南通", "镇江", "泰州", "盐城"],
@@ -874,12 +901,14 @@ def render_stats(group_id: str) -> Path:
 
 HELP_TEXT = """可用指令（所有人可用，需本群已启用）
 
-▍展会
-/下次展-最近那一场（单场卡）
-/*地名*下次展-该城市/省份最近那一场（单场卡）
-/近期展-近期 10 场 + 刚结束 2 场
-/*地名*近期展-该城市/省份的展会列表（最多 6 场）
-/*地名*上次展-该城市/省份办过的展会（灰色卡片）
+▍展会（可自由组合：时间 + 地名 + 展/聚）
+时间：上次·上一次 / 下次·下一次 / 近期·最近
+类型：展·聚·兽聚·兽展·展会（写法随意，结果一样）
+/下次展 /下次聚      -最近那一场（单场卡）
+/江苏下次展 /江苏下次聚 -该城市/省份最近那一场（单场卡）
+/近期展 /最近有什么    -近期 10 场 + 刚结束 2 场
+/江苏近期展           -该城市/省份的展会列表（最多 6 场）
+/江苏上次展           -该城市/省份办过的展会（灰色卡片）
 
 ▍其他
 /运势-今日人品（也支持 /jrrp /jrys /人品）
@@ -922,13 +951,13 @@ def set_group_enabled(group_id: str, enabled: bool) -> None:
 
 
 def match_command(text: str, slash: bool = False) -> tuple[str, str]:
-    """Match a message against the command table.
+    """Match a message to a command key and an optional city.
 
-    Args:
-        text: Raw message text.
-
-    Returns:
-        Tuple of (command key or empty string, matched city or empty string).
+    Event queries are parsed compositionally: the first time word decides
+    过去 / 下次 / 近期, the first matching place name becomes the city, and
+    any of 展/聚/兽聚/兽展/展会 simply marks it as an event query.  A message
+    that carries no recognised command is returned as ``("", "")`` and left
+    to other plugins instead of being swallowed.
     """
     body = re.sub(r"^\[[^\]]*\]\s*", "", text).strip()
     body = re.sub(rf"@{NAME_CALL}\s*", "", body)
@@ -937,29 +966,44 @@ def match_command(text: str, slash: bool = False) -> tuple[str, str]:
     if not (slash or called):
         return "", ""
 
-    city = ""
-    for name in CITY_NAMES + PROVINCES:
-        if name in body_clean:
-            city = name
-            break
-
+    # 1. Commands with fixed syntax (help / admin / fortune / stats).
     for key, pattern in COMMANDS:
-        if not pattern.search(body_clean):
-            continue
-        # 命中"下次展/上次展/有什么展"之类，且句子里带了城市/省份 -> 走城市查询
-        if city and key in ("next", "recent", "city_recent", "city_list"):
-            if "上次" in body_clean:
-                return "city_past", city
-            if "下次" in body_clean or "下一" in body_clean or "下一场" in body_clean:
-                return "city_next", city
-            return "city_recent", city
-        if key.startswith("city_"):
-            return key, city
-        return key, city
+        if pattern.search(body_clean):
+            return key, ""
 
-    if city:
-        return "city_list", city
-    return "", ""
+    # 2. Compositional event query. Pick the earliest place name so that
+    #    "苏州南京" style input is deterministic.
+    city = ""
+    city_pos = len(body_clean)
+    for name in CITY_NAMES + PROVINCES:
+        pos = body_clean.find(name)
+        if 0 <= pos < city_pos:
+            city, city_pos = name, pos
+
+    # Find the first time word by position, not by list order, so mixed
+    # phrases like "上次…下次…" follow what the user wrote first.
+    time_key = ""
+    time_pos = len(body_clean)
+    for key, words in EVENT_TIME_WORDS:
+        for word in words:
+            pos = body_clean.find(word)
+            if 0 <= pos < time_pos:
+                time_key, time_pos = key, pos
+
+    has_kind = any(word in body_clean for word in EVENT_KIND_WORDS)
+    has_marker = any(word in body_clean for word in EVENT_EXTRA_MARKERS)
+    if not (has_kind or has_marker):
+        # No recognised command. Do not stop the event: other plugins may
+        # still have their own slash command with the same name.
+        return "", ""
+
+    if time_key == "past":
+        return "city_past", city
+    if time_key == "next":
+        return ("city_next" if city else "next"), city
+    if time_key == "recent":
+        return ("city_recent" if city else "recent"), city
+    return "city_list", city
 
 
 class Main(star.Star):
