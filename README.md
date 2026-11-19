@@ -45,9 +45,9 @@ git clone https://github.com/zincvolt/astrbot-plugin-furcon.git astrbot_plugin_f
 pip install httpx pillow
 ```
 
-字体已内嵌（**Noto Sans SC Bold**，SIL OFL 1.1，见 `fonts/OFL.txt`），开箱即用，不依赖系统的微软雅黑/苹方等商业字体，Windows / Linux / macOS 出图一致。想换字体就设置 `FURCON_FONT` 指向任意字体文件；若连内嵌字体一起删了，才会回退到系统字体（找不到就显示方块）。
+图片字体已内嵌（**Noto Sans SC Bold**，SIL OFL 1.1，见 `fonts/OFL.txt`），想换字体就设置 `FURCON_FONT` 指向任意字体文件；若连内嵌字体一起删了，才会回退到系统字体（可能会显示方块）。
 
-### 3. 配置（可选，绝大多数情况可跳过）
+### 3. 配置修改（可选，绝大多数情况可跳过）
 
 插件-应该-会自动推断数据位置，**单机默认安装的 AstrBot 无需任何配置**。仅当你的目录结构特殊时，才需要设置环境变量：
 
@@ -57,7 +57,7 @@ pip install httpx pillow
 | `FURCON_BOT_DB` | AstrBot 数据库 `data_v4.db` 路径（群统计用） | 自动：`plugins/` 上两级的 `data/data_v4.db` |
 | `FURCON_NAME_CALL` | 「喊名字触发」的名字正则 | `(阿灰\|小灰\|灰狼)` |
 | `FURCON_ADMINS` | 管理员 QQ，多个用逗号分隔 | `1154487120`（记得改，这个是我的QQ号！） |
-| `FURCON_FONT` | 自定义字体文件绝对路径（多个用 `;` 分隔） | 内嵌的 Noto Sans SC Bold |
+| `FURCON_FONT` | 自定义字体文件绝对路径（多个用 `;` 分隔）（虽然好像不支持多字体） | 内嵌的 Noto Sans SC Bold |
 
 PowerShell 示例：
 
@@ -71,7 +71,7 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 
 ### 4. 启用功能
 
-重启 AstrBot 让插件加载。然后在**群里**用管理员 QQ 发一条：
+重启 AstrBot 让插件加载。然后在**对应群里**用管理员 QQ 发一条：
 
 ```
 /启用功能
@@ -103,7 +103,7 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 规则细节：
 
 - **不带斜杠、不喊名字 → 不触发**，消息正常走大模型聊天。
-- **带斜杠但没命中任何规则 → 本插件完全不接管**，事件继续传给其他插件（不会误触发聊天，也不会抢别人的 `/指令`）。
+- **带斜杠但没命中任何规则 → 本插件完全不接管**，事件继续传给其他插件（不会误触发聊天，应该也不会抢别的插件的 `/指令`）。
 - **城市名会被自动提取**（从 `CITY_NAMES` / `PROVINCES` 里匹配），用于城市类查询，例如 `/成都下次展`。
 - **群功能开关**：未启用的群只响应帮助命令。
 - **管理员功能**：`/启用功能`、`/关闭功能`、`/关心`、`/取消关心` 只有符合 `FURCON_ADMINS` 里的 QQ 能用。
@@ -121,12 +121,13 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 
 ---
 
-## 完整触发词表
+## -完整-触发词表
 
-展会查询是**组合式**的，不再靠一长串正则去穷举排列。源码里对应
+# 模糊指令匹配：
+展会查询是**组合式**的，在源码里对应
 `EVENT_TIME_WORDS` / `EVENT_KIND_WORDS` / `EVENT_EXTRA_MARKERS` / `COMMANDS`。
 
-一句展会查询可以拆成这几块，**顺序随意、可省略**：
+指令可以拆成这几块，**顺序随意、可省略**：
 
 ```
 [时序] + [范围] + [地名] + [类型]
@@ -140,8 +141,7 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 
 判定规则：最早出现的时序词决定走 `city_past` / `city_next`（`next`）/
 `city_recent`（`recent`）；没有时序词但有类型词 → `city_list`；
-有地名就把地名带上做过滤。**`展` 和 `聚` 完全等价**——FEC 上游数据没有
-区分两者的字段，所以 `/江苏下次展` 和 `/江苏下次聚` 出的是同一张倒计时卡。
+有地名就把地名带上做过滤。**`展` 和 `聚` 完全等价** —— 比如 `/江苏下次展` 和 `/江苏下次聚` 出的是同一张倒计时卡。
 
 固定语法的指令（优先匹配，避免被上面的词误伤）：
 
@@ -173,22 +173,22 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 ```
 
 > 语义区分：`/下次展` 只出一场（最近的），`/近期展` 出列表。判断依据是
-> 句子里有没有「上次 / 下次 / 近期 / 最近」这类时序词。
+> 句子里有没有「上次 / 下次 / 近期 / 最近」这类词
 
 ---
 
 ## 修改位置（改代码时看这里）
 
-行号会随改动漂移，**以符号名为准**（VSCode 里 `Ctrl+Shift+O` 按名字跳）。
+**以函数名为准**（VSCode：`Ctrl+Shift+O` ）。
 
 ### 环境变量 / 配置（不用改代码）
 
 | 想改什么 | 方式 |
 |---|---|
-| 数据放哪 | 环境变量 `QQNTBOT_ROOT` |
-| 管理员是谁 | 环境变量 `FURCON_ADMINS` |
-| 喊哪些名字 | 环境变量 `FURCON_NAME_CALL` |
-| 换字体 | 环境变量 `FURCON_FONT` 指向字体文件绝对路径 |
+| 数据目录 | 环境变量 `QQNTBOT_ROOT` |
+| 管理员列表 | 环境变量 `FURCON_ADMINS` |
+| Bot触发词 | 环境变量 `FURCON_NAME_CALL` |
+| 字体路径 | 环境变量 `FURCON_FONT` 指向字体文件**绝对路径** |
 | 群开关 / 定时播报 | 直接编辑 `data/furcon_enabled.json`、`data/furcon_watch.json`（无需重启） |
 
 ### 源码符号（改功能时）
@@ -225,9 +225,8 @@ $env:FURCON_NAME_CALL = "(团子|阿团)"
 ## 依赖
 
 - AstrBot 4.28+
-- Python 包：`httpx`、`Pillow`（PIL）
-- 中文字体：已内嵌（Noto Sans SC，SIL OFL 1.1），无需另装
-- 能访问 `furrycons.cn`（抓日历）与 `images.furrycons.cn`（卡片宣传图）
+- Python 库：`httpx`、`Pillow`
+- 能访问 `furrycons.cn`（抓取日历）与 `images.furrycons.cn`（卡片宣传图）
 
 ---
 
