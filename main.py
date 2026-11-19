@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import io
 import json
+import os
 import re
 import sqlite3
 import time
@@ -27,12 +28,45 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from astrbot.api import logger, star
 from astrbot.api.event import AstrMessageEvent, filter
 
-ROOT = Path(r"D:\QQNTBOT")
+
+def _detect_root() -> Path:
+    """Locate the data root without hard-coding any machine-specific path.
+
+    Priority:
+      1. ``QQNTBOT_ROOT`` environment variable (explicit override).
+      2. Walk up from this file looking for an ``apps/AstrBot/data`` layout
+         (the original QQNTBOT project layout).
+      3. Fall back to this plugin's own directory, so a cloned plugin works
+         out of the box with data written beside it.
+
+    Override example (PowerShell):
+        $env:QQNTBOT_ROOT = "D:\\QQNTBOT"
+    """
+    override = os.environ.get("QQNTBOT_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser()
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "apps" / "AstrBot" / "data").is_dir():
+            return parent
+    return here.parent
+
+
+ROOT = _detect_root()
 CACHE_FILE = ROOT / "data" / "furcons_cache.json"
 CARD_DIR = ROOT / "data" / "furcons_cards"
 WATCH_FILE = ROOT / "data" / "furcon_watch.json"
 ENABLE_FILE = ROOT / "data" / "furcon_enabled.json"
-BOT_DB = ROOT / "apps" / "AstrBot" / "data" / "data_v4.db"
+
+# AstrBot's database always sits two directories above plugins/, regardless of
+# whether the host uses the original <root>/apps/AstrBot layout or a plain
+# AstrBot install. Override with FURCON_BOT_DB if that does not hold.
+_db_override = os.environ.get("FURCON_BOT_DB", "").strip()
+BOT_DB = (
+    Path(_db_override).expanduser()
+    if _db_override
+    else Path(__file__).resolve().parent.parent.parent / "data_v4.db"
+)
 SOURCE_URL = "https://www.furrycons.cn/"
 CACHE_TTL = 6 * 3600
 CST = timezone(timedelta(hours=8))
@@ -53,13 +87,26 @@ TYPE_TEXT = {
 }
 
 FONT_CANDIDATES = [
+    # Windows
     r"C:\Windows\Fonts\msyhbd.ttc",
     r"C:\Windows\Fonts\msyh.ttc",
     r"C:\Windows\Fonts\simhei.ttf",
+    # Linux (Debian/Ubuntu: fonts-noto-cjk / fonts-wqy-microhei)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    # macOS
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
 ]
 
-NAME_CALL = r"(阿灰|小灰|灰狼)"
-ADMINS = {"1154487120"}
+# Bot names that trigger "call by name" mode, and the QQ numbers allowed to
+# run admin commands. Both can be overridden via environment variables;
+# multiple names/admins are joined with "|" / "," respectively.
+NAME_CALL = os.environ.get("FURCON_NAME_CALL", r"(阿灰|小灰|灰狼)")
+_admins_raw = os.environ.get("FURCON_ADMINS", "1154487120")
+ADMINS = {x.strip() for x in re.split(r"[,\s]+", _admins_raw) if x.strip()}
 
 COMMANDS: list[tuple[str, re.Pattern]] = [
     ("help", re.compile(r"^(兽聚help|兽聚指令|兽聚功能|兽聚用法)$", re.I)),
@@ -977,7 +1024,9 @@ class Main(star.Star):
                 pass
             else:
                 await event.send(
-                    event.plain_result("未启用请联系本机管理员1154487120 owo")
+                    event.plain_result(
+                        f"未启用请联系本机管理员 {'/'.join(sorted(ADMINS))} owo"
+                    )
                 )
                 event.stop_event()
                 return
