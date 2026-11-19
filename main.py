@@ -21,6 +21,7 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from sys import maxsize
 
 import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -1020,7 +1021,12 @@ class Main(star.Star):
         event.stop_event()
         logger.info(f"[furcon] sent {tag}: {path.name}")
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    # priority=maxsize：必须抢在 AstrBot 内置的群聊上下文/主动回复 handler
+    # （priority=maxsize-1 / maxsize-2）之前跑完。否则「阿灰下次兽聚」这类
+    # 喊名字的消息会先被判官判定为「召唤词直通」，另起一次 LLM 请求把话说完，
+    # 等本插件拿到事件时模型已经回复了，stop_event() 来不及，就会一句话 + 一张卡。
+    # 本 handler 不匹配时立即 return，不会影响正常聊天。
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=maxsize)
     async def handle(self, event: AstrMessageEvent) -> None:
         """Dispatch slash or name triggers to the matching card."""
         text = (event.message_str or "").strip()
