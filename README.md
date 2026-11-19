@@ -1,6 +1,6 @@
 # astrbot-plugin-furcon
 
-兽展（furry convention）工具插件，用于 [AstrBot](https://github.com/AstrBotDevs/AstrBot)。
+兽聚（furry convention）查询工具插件，用于 [AstrBot](https://github.com/AstrBotDevs/AstrBot)。
 
 所有回答都是一图流。既可以被斜杠命令触发，也可以像叫朋友一样喊机器人名字触发。数据来自 [FEC 兽展日历](https://www.furrycons.cn)。
 （安装见[安装](#安装)）。
