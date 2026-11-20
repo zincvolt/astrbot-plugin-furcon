@@ -1,4 +1,4 @@
 name: astrbot_plugin_furcon
-desc: 兽聚倒计时，抓 FEC 兽展日历并渲染倒计时卡片
+desc: 兽聚倒计时，抓 FEC 兽展日历并渲染倒计时卡片。整套 QQ 机器人方案主仓库：github.com/zincvolt/QQNTbotBUTafter261101
 author: local
 version: 1.2.1
