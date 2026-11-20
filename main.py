@@ -946,11 +946,13 @@ HELP_TEXT = """可用指令（所有人可用，需本群已启用）
 
 也可以直接喊「阿灰 下次展」「小灰 运势」"""
 
-# 一图流帮助卡：优先用 access 的 card_render，单拎时降级 PIL 自绘
-try:
-    from card_render import render_text_card as _render_card
-except ImportError:
-    _render_card = None
+# 一图流帮助卡（惰性导入，坏了降级纯文字）
+def _render_help_card(title: str, lines: list[str], footer: str = ""):
+    try:
+        from card_render import render_text_card
+        return render_text_card(title, lines, footer=footer)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def group_enabled(group_id: str) -> bool:
@@ -1073,9 +1075,12 @@ class Main(star.Star):
         )
 
         key, city = match_command(text, slash=slash)
-        logger.info(f"[furcon] recv slash={slash} key={key or '-'} text={text[:24]}")
         if not key:
+            # 非指令消息（绝大多数）：静默返回。此前这里每条消息都打一条
+            # INFO 日志，纯属日志 I/O 浪费；匹配本身在 match_command 内部
+            # 已有「非斜线且非喊名字 → 早退」的廉价路径，无需再省。
             return
+        logger.info(f"[furcon] recv slash={slash} key={key} text={text[:24]}")
 
         group_id = str(event.get_group_id() or "")
         sender = str(event.get_sender_id() or "")
@@ -1145,16 +1150,16 @@ class Main(star.Star):
                 return
 
             if key == "help":
-                if _render_card:
-                    # 一图流帮助卡（SHA 缓存，内容没变不重画）
-                    card_path = _render_card(
-                        "兽聚指令帮助",
-                        HELP_TEXT.split("\n"),
-                        footer="也可喊「阿灰 下次展」「小灰 运势」",
-                    )
+                card_path = _render_help_card(
+                    "兽聚指令帮助",
+                    HELP_TEXT.split("\n"),
+                    footer="也可喊「阿灰 下次展」「小灰 运势」",
+                )
+                if card_path is not None:
                     await event.send(event.image_result(str(card_path)))
                 else:
-                    await event.send(event.plain_result(HELP_TEXT))
+                    # 宁可报错也不出文字版
+                    await event.send(event.plain_result("⚠ 帮助图卡生成失败，稍后再试"))
                 event.stop_event()
                 return
 
